@@ -1,54 +1,37 @@
+require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
 const { Queue } = require('bullmq');
 const IORedis = require('ioredis');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
-app.use(cors());
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
+
 app.use(express.json());
+app.use(express.static(__dirname));
 
-const connection = new IORedis({
-  host: 'localhost',
-  port: 6379,
-  maxRetriesPerRequest: null
+// Inizializza la coda per l'evento
+const analyticsQueue = new Queue('analytics-queue', { 
+    connection: new IORedis({ host: process.env.REDIS_HOST || '127.0.0.1', port: 6379, maxRetriesPerRequest: null }) 
 });
 
-const eventQueue = new Queue('analytics-events', { connection });
-app.get('/', (req, res) => {
-  res.send(`
-    <div style="font-family: sans-serif; text-align: center; padding: 50px;">
-      <h1> Analytics Server /h1>
-      <p>Il sistema di tracciamento è attivo sulla porta 4000.</p>
-      <p>Invia i dati POST a: <code>/api/collect</code></p>
-      <hr />
-      <button onclick="testEvent()">Invia Clic di Test</button>
-      <script>
-        function testEvent() {
-          fetch('/api/collect', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              event: 'button_click',
-              url: window.location.href,
-              timestamp: Date.now(),
-              metadata: { user: 'test-admin' }
-            })
-          }).then(res => alert('Evento inviato alla coda!'));
-        }
-      </script>
-    </div>
-  `);
-});
-app.post('/api/collect', async (req, res) => {
-  const { event, url, timestamp, metadata } = req.body;
-  
-  try {
-    await eventQueue.add('track-event', { event, url, timestamp, metadata });
-    return res.status(202).json({ success: true, message: 'Evento in coda' });
-  } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
-  }
+app.post('/api/v1/analytics/events', async (req, res) => {
+    try {
+        const { name, userAgent } = req.body;
+        const browser = userAgent.includes('Chrome') ? 'Chrome' : userAgent.includes('Firefox') ? 'Firefox' : 'Other';
+        
+        // Aggiunge il job alla coda
+        await analyticsQueue.add('track-event', { name, browser });
+        
+        // Notifica il client in tempo reale
+        io.emit('event-queued', { browser });
+        
+        res.status(202).json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Errore interno' });
+    }
 });
 
-const PORT = 4000;
-app.listen(PORT, () => console.log(`🚀 Ingestion Server pronto sulla porta ${PORT}`));
+server.listen(3000, () => console.log('🚀 Server attivo su porta 3000'));

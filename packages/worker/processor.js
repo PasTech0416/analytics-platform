@@ -1,16 +1,28 @@
+require('dotenv').config();
 const { Worker } = require('bullmq');
 const IORedis = require('ioredis');
+const { PrismaClient } = require('@prisma/client');
+const { PrismaPg } = require('@prisma/adapter-pg');
+const { Pool } = require('pg');
 
-const connection = new IORedis({
-  host: 'localhost',
-  port: 6379,
-  maxRetriesPerRequest: null
+// Configura il client Prisma
+const prisma = new PrismaClient({ 
+    adapter: new PrismaPg(new Pool({ connectionString: process.env.DATABASE_URL })) 
 });
-const worker = new Worker('analytics-events', async job => {
-  const { event, url, timestamp, metadata } = job.data;
-  
-  console.log(`[Worker] Elaborazione evento asincrono: "${event}" associato a URL: ${url}`);
-}, { connection });
 
-worker.on('completed', job => console.log(`Job ${job.id} completato con successo.`));
-worker.on('failed', (job, err) => console.error(`Job ${job.id} fallito: ${err.message}`));
+// Avvia il worker in ascolto
+const worker = new Worker('analytics-queue', async (job) => {
+    await prisma.event.create({ 
+        data: {
+            name: job.data.name,
+            url: "https://app.dev",
+            browser: job.data.browser,
+            os: "Windows"
+        } 
+    });
+    console.log(`✅ Evento salvato: ${job.data.browser}`);
+}, { 
+    connection: new IORedis({ host: process.env.REDIS_HOST || '127.0.0.1', port: 6379, maxRetriesPerRequest: null }) 
+});
+
+console.log('👷 Worker in ascolto...');

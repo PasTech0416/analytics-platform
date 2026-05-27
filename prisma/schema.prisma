@@ -1,0 +1,20 @@
+// 1. Configurazione del Datasource (Solo il provider per far capire la sintassi alla CLI)
+datasource db {
+  provider = "postgresql"
+}
+
+// 2. Configurazione del Client
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+// 3. Modello dell'evento con i campi di segmentazione
+model Event {
+  id        Int      @id @default(autoincrement())
+  name      String
+  url       String
+  browser   String?  // <-- Tipo di Browser
+  os        String?  // <-- Sistema Operativo
+  timestamp DateTime @default(now())
+}
